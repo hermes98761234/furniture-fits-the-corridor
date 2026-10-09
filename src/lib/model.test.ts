@@ -67,6 +67,18 @@ describe('storage', () => {
     vi.stubGlobal('localStorage', fakeStorage('{"item":1,"settings":null,"steps":"x"}'))
     expect(loadState().item).toEqual(DEFAULT_STATE.item)
   })
+  it('drops malformed steps and unknown settings values from storage', () => {
+    vi.stubGlobal('localStorage', fakeStorage(JSON.stringify({
+      item: { length: 150, width: 60, height: 50 },
+      settings: { clearance: 2, unit: 'in', lang: 'xx', quality: 'ultra', theme: 'neon' },
+      steps: [{}, null, { kind: 'door', id: 'a' }, { id: 'ok', kind: 'turn', entryWidth: 90, exitWidth: 90, ceiling: 250 }],
+    })))
+    const s = loadState()
+    expect(s.steps).toEqual([{ id: 'ok', kind: 'turn', entryWidth: 90, exitWidth: 90, ceiling: 250 }])
+    expect(s.settings).toEqual({ ...DEFAULT_STATE.settings, clearance: 2, unit: 'in' })
+    expect(s.item.length).toBe(150)
+    expect(() => invalidFields(s)).not.toThrow()
+  })
   it('round-trips through saveState', () => {
     vi.stubGlobal('localStorage', fakeStorage(null))
     const s = structuredClone(DEFAULT_STATE)

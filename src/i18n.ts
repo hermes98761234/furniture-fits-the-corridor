@@ -66,6 +66,7 @@ export const UK: Record<string, string> = {
   'Fix the highlighted fields.': 'Виправте виділені поля.',
   "It won't fit: {0} of {1} steps blocked.": 'Не пройде: заблоковано кроків — {0} з {1}.',
   'It fits through the whole route.': 'Проходить увесь маршрут.',
+  "Couldn't check {0} of {1} steps.": 'Не вдалося перевірити кроків — {0} з {1}.',
   'Walk-through': 'Прохід',
   'Plan and side view of the selected step': 'План і вигляд збоку для вибраного кроку',
   "No path: it doesn't fit here.": 'Шляху немає: тут не проходить.',

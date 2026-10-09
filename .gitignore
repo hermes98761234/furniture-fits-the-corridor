@@ -7,3 +7,6 @@ dist
 .vscode/*
 .idea
 .claude/settings.local.json
+# tsc output if a config ever loses noEmit: it would shadow the .ts sources
+src/**/*.js
+/vite.config.js

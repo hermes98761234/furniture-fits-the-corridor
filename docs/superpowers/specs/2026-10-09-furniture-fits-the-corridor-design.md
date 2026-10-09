@@ -21,7 +21,7 @@ Out of scope: stairs, item shapes other than a box, turns at angles other than 9
 - State is plain React state persisted to `localStorage`, with no state library. Every storage read and write is wrapped in try/catch.
 - `src/index.css` copies WebVNA's token sheet: `--bg`, `--panel`, `--panel2`, `--fg`, `--muted`, `--line`, `--accent`, `--ok`, `--warn`, `--err`, the light and dark blocks (`prefers-color-scheme`, `[data-theme]`), and the button, input and panel styles. The theme follows the system, with a manual toggle.
 - The solver runs in a Web Worker (`src/solver.worker.ts`), so the UI never blocks.
-- Vite sets `base: '/furniture-fits-the-corridor/'` for Pages.
+- Vite sets `base: './'` (relative asset paths), so the build works under the Pages sub-path.
 
 ## Model
 

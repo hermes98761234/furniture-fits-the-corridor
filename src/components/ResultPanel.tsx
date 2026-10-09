@@ -2,6 +2,7 @@ import { toUnit, type Step, type Unit } from '../lib/model'
 import { holdAt, MAX_MARGIN, type Up } from '../lib/solver'
 import { N, STEP_LABEL, type T } from '../i18n'
 import type { StepStatus } from '../useSolver'
+import { verdict as summarize } from '../summary'
 
 type Props = {
   steps: Step[]
@@ -32,18 +33,8 @@ function describe(st: StepStatus | undefined, unit: Unit, t: T): { cls: string; 
 }
 
 export default function ResultPanel({ steps, results, unit, invalid, selected, onSelect, t }: Props) {
-  const sts = steps.map((s) => results[s.id])
-  const blocked = sts.filter((s) => s?.state === 'done' && !s.result.fits).length
-  const allDone = sts.every((s) => s?.state === 'done')
-  const verdict = invalid
-    ? { cls: 'warn', text: t('Fix the highlighted fields.') }
-    : steps.length === 0
-      ? { cls: '', text: t('Add a doorway or turn.') }
-      : blocked > 0
-        ? { cls: 'err', text: t("It won't fit: {0} of {1} steps blocked.", blocked, steps.length) }
-        : allDone
-          ? { cls: 'ok', text: t('It fits through the whole route.') }
-          : { cls: '', text: t('Checking…') }
+  const v = summarize(steps.map((s) => results[s.id]), invalid)
+  const verdict = { cls: v.cls, text: t(v.text, ...v.args) }
   return (
     <section className="box">
       <h3>{t('Result')}</h3>

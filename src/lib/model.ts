@@ -56,11 +56,27 @@ export function invalidFields(s: AppState): Set<string> {
 
 const KEY = 'fftc:v1'
 
+const oneOf = <V extends string>(v: unknown, allowed: readonly V[], fallback: V): V => (allowed.includes(v as V) ? (v as V) : fallback)
+const isStep = (x: unknown): x is Step =>
+  typeof x === 'object' && x !== null && typeof (x as Step).id === 'string' && ((x as Step).kind === 'doorway' || (x as Step).kind === 'turn')
+
 export function loadState(): AppState {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) ?? 'null')
     if (s && typeof s.item === 'object' && s.item && typeof s.settings === 'object' && s.settings && Array.isArray(s.steps)) {
-      return { item: { ...DEFAULT_STATE.item, ...s.item }, settings: { ...DEFAULT_STATE.settings, ...s.settings }, steps: s.steps }
+      // Saved data may come from an older version or be hand-edited: keep only what we understand.
+      const d = DEFAULT_STATE.settings, st = s.settings
+      return {
+        item: { ...DEFAULT_STATE.item, ...s.item },
+        settings: {
+          clearance: typeof st.clearance === 'number' ? st.clearance : d.clearance,
+          unit: oneOf(st.unit, ['cm', 'in'], d.unit),
+          lang: oneOf(st.lang, ['en', 'uk'], d.lang),
+          quality: oneOf(st.quality, ['low', 'medium', 'high'], d.quality),
+          theme: oneOf(st.theme, ['auto', 'light', 'dark'], d.theme),
+        },
+        steps: s.steps.filter(isStep),
+      }
     }
   } catch {
     // Storage blocked, missing or corrupt: fall back to the defaults below.
