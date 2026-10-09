@@ -29,7 +29,7 @@ All lengths are stored in cm. Display converts to inches when that unit is selec
 
 ```ts
 type Item = { length: number; width: number; height: number };
-type Settings = { clearance: number; unit: 'cm' | 'in'; lang: 'en' | 'uk'; quality: 'low' | 'medium' | 'high' };
+type Settings = { clearance: number; unit: 'cm' | 'in'; lang: 'en' | 'uk'; quality: 'low' | 'medium' | 'high'; theme: 'auto' | 'light' | 'dark' };
 type Step =
   | { id: string; kind: 'doorway'; width: number; height: number; wallThickness: number; approachWidth?: number }
   | { id: string; kind: 'turn'; entryWidth: number; exitWidth: number; ceiling: number };
@@ -41,72 +41,103 @@ type Step =
 
 ## Solver (`src/lib/`, pure, no DOM)
 
+The solver was prototyped and measured before this spec was finalised; the numbers below are from that prototype.
+
 ### `geometry.ts`
-- `obbIntersectsAabb(obb, aabb): boolean` — the separating-axis test with 15 axes (3 box axes, 3 world axes, and 9 cross products).
-- `poseToObb(item, pose): Obb`.
+- The `Vec3`, `Aabb` and `Obb` types.
+- `obbCorners`, `obbBounds` (world bounding box of an oriented box) and `hull2d` (a convex hull, used for drawing).
 
 ### `scenes.ts`
-`buildScene(step, item): Scene` returns:
-- `obstacles: Aabb[]` — wall blocks, the floor and ceiling slabs, and the doorway wall pieces on each side and above the opening.
-- `start` and `goal` predicates — the box lies fully inside the entry region, or fully inside the exit region.
-- `bounds` — the x and y range to search.
+`buildScene(step, reach): Scene` returns:
+- **`obstacles: Aabb[]`** — wall blocks, the ceiling slab, and the doorway's wall pieces (left of, right of and above the opening). The floor is not an obstacle, because the box always rests on it.
+- **`bounds`** — the x and y range of box-centre positions to search.
+- **`start: { axis, max, side }`** — the start line. A start pose's bounding box ends at `max` along `axis` and stays on the approach side (`side`) of the other axis. Cells behind the line are skipped, since the approach is open space and adds nothing.
+- **`goal: { axis, min }`** — the item is through once its bounding box begins at `min`.
+- **Turn:** the entry corridor runs along +x, with y from 0 to the entry width. The exit corridor runs along +y, with x from 0 to the exit width.
+- **Doorway:** the wall occupies y ∈ [0, wall thickness], with the opening at x ∈ [0, width] and z ∈ [0, height]. If `approachWidth` is set, a hallway of that width runs along the wall on the approach side. The rooms on either side are taken to be max(door height, 250 cm) tall (marked with a `ponytail:` comment).
+- **Standoff:** the start line sits 35 cm before the opening, so a start pose has up to MAX_MARGIN of clearance.
 
 ### `solver.ts`
-- **Pose:** `{ x, y, yaw, pitch, up }`. `up` is one of 3 choices for which item dimension points vertically before any pitch is applied. Height (z) is not a free variable: the lowest corner of the box sits on the floor. That is always optimal, because the floor is the only lower limit and lifting the item only uses up ceiling room.
-- **Grid:** a 4D occupancy grid over (x, y, yaw, pitch) for each `up` choice. Yaw covers [0, 360°) and wraps around in the neighbour search. Pitch covers [0, 90°]. Because the box is symmetric, pitch −θ at yaw ψ is the same pose as pitch θ at yaw ψ + 180°. Roll is not searched: tilting about one axis plus the 3 `up` choices covers how people actually carry furniture. A `ponytail:` comment records that as the upgrade path. The quality setting sets the resolution (approximate cells per orientation):
-  - low: about 40 × 40 × 48 × 10
-  - medium: about 60 × 60 × 72 × 15
-  - high: about 90 × 90 × 96 × 20
+- **Pose:** `{ x, y, yaw, pitch, up }`.
+  - `up` is `flat`, `side` or `end`: the smallest, middle or largest item dimension points up.
+  - Pitch lifts the longest remaining dimension.
+  - Height (z) is not a free variable: the lowest corner rests on the floor. That is always optimal, because lifting only uses up ceiling room.
+  - Yaw covers [0, 360°) and wraps. Pitch covers [0, 90°].
+  - Roll is not searched: tilting about one axis plus the 3 `up` choices covers how people carry furniture. This is marked with a `ponytail:` comment.
+- **Clearance per pose:** for each grid pose, the solver computes in closed form how many cm the box could grow on every face and still clear every obstacle. A negative value is how much it must shrink.
+  - This is exact per separating axis. Growing by d adds d·k to the box's projected radius, and lifts its centre by d·(sin p + cos p) because it stays on the floor.
+  - The value is clamped to ±MAX_MARGIN, which is 20 cm.
+  - The per-orientation constants are precomputed once, so each cell costs only a few multiply-adds.
+- **Search:** a widest-path search over the 4D grid (x, y, yaw, pitch), run once for each `up` choice.
+  - It uses a bucket queue (0.25 cm buckets, first-in-first-out within a bucket) and returns the start→goal route whose tightest pose has the most clearance.
+  - Collision checks are lazy: only cells the search touches are evaluated.
+  - The search starts untilted (pitch 0).
+  - A search-only penalty of 0.01 cm per degree of tilt sends ties to the less tilted path.
+  - Only grid poses are checked, not the sweep between neighbouring poses (marked with a `ponytail:` comment).
+- **Margin:** the minimum true clearance along the best path, taking the best of the 3 `up` choices. `fits` is true exactly when margin ≥ 0. A margin of +20 reads "20+ cm to spare" and −20 reads "short by 20 cm or more".
+- **Grid:** snapped to whole multiples of the position step, so a cell's position doesn't shift with item size. The grid is the accuracy limit, and margins can under-read by up to about one position step (marked with a `ponytail:` comment).
 
-  The cells are stored in typed arrays. A `ponytail:` comment marks the grid resolution as the accuracy limit and names the upgrade path (adaptive refinement near the tightest point).
-- **Search:** a breadth-first search over 4D neighbours (±1 on each axis) between free cells. It runs from any free start cell to any free goal cell, and the parent pointers rebuild the path.
-- **Margin:** a binary search on δ, where the item is inflated by δ on each face (δ can be negative). The margin is the largest δ that still gives a path. The search range is [−50 cm, +50 cm], with about 8 iterations at a 0.5 cm tolerance.
+  | quality | position | yaw | pitch | measured time per step on this machine |
+  |---|---|---|---|---|
+  | low (Fast) | 4 cm | 7.5° | 15° | 0.1–2 s |
+  | medium (Balanced, default) | 3 cm | 6° | 10° | 0.2–7 s |
+  | high (Precise) | 2 cm | 5° | 7.5° | 0.4–15 s |
+
+  Open doorways are the slow case, because the whole area in front of the wall is free and gets explored.
 - **Output:**
   ```ts
   type StepResult = {
     fits: boolean;
-    margin: number;          // cm; positive = spare, negative = short
-    orientation: string;     // i18n key + params, e.g. on-end, tilt 35°
-    path: Pose[];            // empty if it does not fit
-    tightestIndex: number;   // frame with least clearance
+    margin: number;        // cm; >= 0 spare, < 0 short
+    up: Up | null;         // working orientation, null if it does not fit
+    tilt: number;          // largest tilt along the path, degrees
+    path: Pose[];          // empty if it does not fit
+    tightestIndex: number; // frame with least clearance
   };
   ```
-- **Worker protocol:** the worker receives `{ requestId, item, settings, steps }` and posts one `{ requestId, stepId, result | error }` message per step. When a new request arrives, the stale one is abandoned. Results that carry an old `requestId` are ignored.
+- **Workers:** each step is solved in its own Web Worker, so the steps run in parallel. A request is `{ item, clearance, quality, step }` and the reply is `{ result } | { error }`. Any input change terminates all running workers and starts fresh ones.
 
 ## UI (`src/components/`)
 
-- **`ItemForm`** — L, W and H fields, clearance, the unit toggle, the quality select, the language select and the theme toggle.
-- **`RouteEditor`** — a list of step cards. Each card has a type select, the fields for that type, up/down buttons and a remove button. "Add doorway" and "Add turn" buttons go at the bottom. The default route is a doorway, then a turn, then a doorway, filled with typical apartment sizes.
-- **`ResultPanel`** — one row per step: ✓ or ✗ (using `--ok` / `--err`), the margin ("+3.2 cm spare" / "−4.1 cm short"), and the working orientation. Below the rows is an overall verdict. Clicking a row selects that step in `SceneView`.
-- **`SceneView`** — a canvas with the plan view on top and the side view below, for the selected step. It draws the walls and the item's projected outline. Play/pause and a scrub slider move through `path`, and the tightest frame is highlighted. The canvas reads its colours from the CSS tokens, so it follows the theme.
-- **`i18n.ts`** — flat `en` and `uk` dictionaries and a `t(key, params)` helper, in the same style as WebVNA.
+- **`ItemForm`** — the L, W and H fields, clearance, the unit select, the quality select (Fast / Balanced / Precise), the language select and the theme select (System / Light / Dark).
+- **`RouteEditor`** — a list of step cards. Each card shows the fields for its type, up/down buttons and a remove button. To change a step's type, remove it and add the other kind. "+ Doorway" and "+ Corridor turn" buttons go at the bottom. The default route is a doorway, then a turn, then a doorway from a hallway, filled with typical apartment sizes.
+- **`ResultPanel`** — an overall verdict, then one row per step: ✓ or ✗ (using `--ok` / `--err`), the margin ("Fits with 3.2 cm to spare" / "Doesn't fit: short by 4.1 cm"), and the working orientation ("lying flat, tilted up to 30°"). Clicking a step selects it in `SceneView`.
+- **`SceneView`** — a canvas with the plan view on top and the side view below, for the selected step.
+  - It draws the walls, the lintel and ceiling, and the item's projected outline. The tightest pose is drawn dashed in `--err`.
+  - Play/pause, a scrub slider and a "Tightest point" button move through `path`.
+  - It reads its colours from the CSS tokens, so it follows the theme.
+- **`i18n.ts`** — in the same style as WebVNA: English source strings are the keys, plus a Ukrainian dictionary and a `tr(lang, s, ...args)` helper with `{0}` placeholders. A test checks that every `t('…')` literal has a Ukrainian entry.
 
 Layout: on desktop, the inputs sit in a left column and the results and scene on the right. On phone width (16 px gutter, no horizontal scroll), everything stacks in one column.
 
 ## Data flow
 
-1. A change to an input saves to localStorage and starts a 300 ms debounce. After that, the request is posted to the worker.
-2. Results arrive per step, and the ResultPanel shows a spinner on each step that is still pending.
+1. A change to an input saves to localStorage. After a 300 ms debounce, each step is posted to its own worker.
+2. Results arrive per step, and each step shows "Checking…" until its own result arrives.
 3. The SceneView animates the path of the selected step.
 
 ## Error handling
 
-- Field validation: values must be finite numbers with 0 < value ≤ 2000 cm. An invalid field is outlined with `--err`, and no solve runs until it is fixed.
-- An empty route shows the hint "Add a doorway or turn". No solve runs.
-- An exception in the worker shows that step as "error: message", and the other steps still run.
-- If a solve takes longer than 10 s, the worker is terminated and recreated. The step then shows "timed out, try lower quality".
-- If localStorage is unavailable, the app falls back to the defaults silently.
+- Field validation: lengths must be finite numbers with 0 < value ≤ 2000 cm, and clearance must be 0–20 cm. An invalid field is outlined with `--err` and the verdict says "Fix the highlighted fields". No solve runs until it is fixed.
+- An empty route shows the hint "Add a doorway or turn." No solve runs.
+- An exception in a worker shows that step as "Error: message", and the other steps still run.
+- Each worker has a timeout of 20 s (Fast), 45 s (Balanced) or 120 s (Precise). When it expires, the worker is terminated and the step shows "Timed out. Try a faster quality setting."
+- If localStorage is unavailable or holds corrupt data, the app falls back to the defaults silently.
 
-## Testing (Vitest, `src/lib/*.test.ts`)
+## Testing (Vitest)
 
-- **`geometry.test.ts`** — separating-axis cases: separated, touching, overlapping, and a rotated box that overlaps only along a cross-product axis.
+- **`geometry.test.ts`** — corners, bounds of a rotated box, and the hull.
+- **`model.test.ts`** — unit conversion, field validation, and the storage fallback.
+- **`i18n.test.ts`** — placeholder parity between the languages, fallback to English, and every `t('…')` / `N('…')` literal in `src/` having a Ukrainian entry.
 - **`solver.test.ts`**:
-  - **2D check.** With the ceiling at 10 m, the item flat and `up` fixed, a turn must pass for length L < L_max and fail for L > L_max. Here L_max = min over θ of [a/sinθ + b/cosθ − w/(sinθ·cosθ)], computed numerically, within 2 grid cells of tolerance.
-  - **Doorway, small item.** An item smaller than the opening passes with a positive margin.
-  - **Doorway, too wide.** An item whose smallest cross-section is larger than the opening fails.
-  - **Upright only.** A tall, narrow item passes only with `up` set to its long axis. The orientation label reflects that.
-  - **Tilt matters.** A turn case that fails with pitch held at 0 but passes when pitch is free.
-  - **Margin sign.** The margin is positive exactly when `fits` is true.
+  - **2D check.** With a 10 m ceiling and the item kept flat, a turn passes at L_max − 15 cm and fails at L_max + 15 cm. L_max = min over θ of [a/sinθ + b/cosθ − w/(sinθ·cosθ)], found numerically.
+  - **Doorway, narrower item.** A 70 cm item through an 80 cm opening passes with margin in (3, 5] and no tilt.
+  - **Doorway, too wide.** An item wider than the opening in every direction fails with margin < −3 and an empty path.
+  - **Upright only.** A tall, narrow item passes with `up = end`.
+  - **From a hallway.** A wardrobe turns in through the door from a 100 cm hallway.
+  - **Clearance.** Adding 1 cm of clearance lowers the margin by 1 cm (±0.1).
+  - **Tilt.** A turn that fails when the item is kept flat passes once tilt is allowed (tilt > 0), and still fails under a 150 cm ceiling.
+  - **Margin.** The margin is capped at +20 for a tiny item and −20 for a hopeless one, and margin ≥ 0 exactly when the item fits.
 - CI runs `npm run lint`, `npm test` and `npm run build`.
 
 ## Repo, CI and GitHub Pages
