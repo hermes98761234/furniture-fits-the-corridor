@@ -5,6 +5,7 @@ import { useSolver } from './useSolver'
 import ItemForm from './components/ItemForm'
 import RouteEditor from './components/RouteEditor'
 import ResultPanel from './components/ResultPanel'
+import SceneView from './components/SceneView'
 
 export default function App() {
   const [state, setState] = useState<AppState>(loadState)
@@ -40,7 +41,9 @@ export default function App() {
         </aside>
         <main className="main">
           <ResultPanel steps={steps} results={results} unit={settings.unit} invalid={bad.size > 0} selected={sel?.id ?? null} onSelect={setSelected} t={t} />
-          {/* SceneView goes here in Task 7 */}
+          {sel && (
+            <SceneView key={`${sel.id}:${results[sel.id]?.state}`} step={sel} item={item} clearance={settings.clearance} status={results[sel.id]} t={t} />
+          )}
         </main>
       </div>
       <p className="hint foot">

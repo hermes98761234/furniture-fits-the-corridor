@@ -89,7 +89,7 @@ a { color: var(--accent); }
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line);
 }
 .toolbar .brand { font-weight: 700; font-size: 16px; }
-.body { display: grid; grid-template-columns: 360px minmax(0, 1fr); }
+.body { display: grid; grid-template-columns: 360px minmax(0, 1fr); align-content: start; }
 .side { background: var(--panel); border-right: 1px solid var(--line); }
 .panel { padding: 10px 12px; }
 .section { margin-bottom: 14px; }

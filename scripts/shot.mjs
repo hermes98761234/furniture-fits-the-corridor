@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 
-const [url, out, w = '1440', h = '960', dark] = process.argv.slice(2)
+const [url, out, w = '1440', h = '960', dark, script] = process.argv.slice(2)
 const chrome = spawn(process.env.CHROME ?? 'chromium', ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--remote-debugging-port=9333', `--window-size=${w},${h}`, 'about:blank'], { stdio: 'ignore' })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 try {
@@ -34,6 +34,7 @@ try {
     const r = await send('Runtime.evaluate', { expression: "document.querySelectorAll('td').length > 0 && ![...document.querySelectorAll('td')].some(t => t.textContent.includes('Checking') || t.textContent.includes('Перевіряємо'))", returnByValue: true })
     done = r.result?.value === true
   }
+  if (script) await send('Runtime.evaluate', { expression: script })
   await sleep(800) // let the animation draw a frame or two
   const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   writeFileSync(out, Buffer.from(shot.data, 'base64'))
