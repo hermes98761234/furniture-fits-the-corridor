@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_MARGIN, solveStep } from './solver'
+import { holdAt, MAX_MARGIN, solveStep } from './solver'
 import type { DoorwayStep, TurnStep } from './model'
 
 /** Longest flat w-wide box that rounds a corner of corridor widths a and b (classic formula, minimised numerically). */
@@ -105,5 +105,28 @@ describe('huge items finish quickly', () => {
   })
   it('passes a 10 m beam straight through a door', () => {
     expect(solveStep(door(80, 200), { length: 1000, width: 50, height: 50 }, 1, 'medium').fits).toBe(true)
+  })
+})
+
+describe('holdAt', () => {
+  it('keeps the up side and tilt for modest tilts', () => {
+    expect(holdAt('flat', 0)).toEqual({ up: 'flat', tilt: 0 })
+    expect(holdAt('side', 30)).toEqual({ up: 'side', tilt: 30 })
+  })
+  it('calls a near-vertical tilt by the upright pose it really is', () => {
+    expect(holdAt('flat', 90)).toEqual({ up: 'end', tilt: 0 })
+    expect(holdAt('side', 80)).toEqual({ up: 'end', tilt: 0 })
+    expect(holdAt('end', 90)).toEqual({ up: 'side', tilt: 0 })
+  })
+})
+
+describe('equal margins', () => {
+  it('prefers the orientation that needs no tilting', () => {
+    // 92 × 87 cross-section through a 90 cm door: on its side (87 wide) fits untilted;
+    // lying flat only fits by tilting up to vertical, for the same margin.
+    const r = solveStep(door(90, 205), { length: 200, width: 90, height: 85 }, 1, 'low')
+    expect(r.fits).toBe(true)
+    expect(r.up).toBe('side')
+    expect(r.tilt).toBe(0)
   })
 })

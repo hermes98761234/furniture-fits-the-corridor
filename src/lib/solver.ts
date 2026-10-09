@@ -29,6 +29,8 @@ export const MAX_MARGIN = 20
 const BUCKET = 0.25
 /** Search-only penalty (cm per degree of tilt) so ties go to the less tilted path. */
 const TILT_COST = 0.01
+/** Margins this close count as equal when choosing between orientations. */
+const TIE = BUCKET
 const NB = Math.round((2 * MAX_MARGIN) / BUCKET) + 1
 /** Cap on (x, y) grid positions per search. */
 const MAX_POSITIONS = 60_000
@@ -43,6 +45,15 @@ export function localHalf(dims: Vec3, up: Up): Vec3 {
 function axesOf(yaw: number, pitch: number): [Vec3, Vec3, Vec3] {
   const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch)
   return [[cp * cy, cp * sy, sp], [-sy, cy, 0], [-sp * cy, -sp * sy, cp]]
+}
+
+/**
+ * How to describe holding the item: tilting the long side (or, stood on end, the
+ * middle side) to near vertical is really the upright pose, so name that instead.
+ */
+export function holdAt(up: Up, tiltDeg: number): { up: Up; tilt: number } {
+  if (tiltDeg < 80) return { up, tilt: Math.round(tiltDeg) }
+  return { up: up === 'end' ? 'side' : 'end', tilt: 0 }
 }
 
 export function poseToObb(half: Vec3, p: Pose): Obb {
@@ -229,19 +240,21 @@ export function solveStep(step: Step, item: Item, clearanceCm: number, quality: 
   const g = 2 * clearanceCm
   const dims: Vec3 = [item.length + g, item.width + g, item.height + g]
   const scene = buildScene(step, Math.hypot(...dims) / 2 + 2)
-  let best: { up: Up; path: Pose[]; clear: number[]; margin: number } | null = null
+  let best: { up: Up; path: Pose[]; clear: number[]; margin: number; tilt: number } | null = null
   for (const up of opts.ups ?? ['flat', 'side', 'end']) {
     const r = search(scene, localHalf(dims, up), up, quality, opts.maxPitchDeg ?? 90)
     if (!r) continue
     const margin = r.clear.reduce((a, b) => Math.min(a, b))
-    if (!best || margin > best.margin) best = { up, ...r, margin }
+    const tilt = Math.round(r.path.reduce((a, p) => Math.max(a, (p.pitch * 180) / Math.PI), 0))
+    // Equal margins (within a bucket) go to the orientation that needs less tilting: easier to carry.
+    if (!best || margin > best.margin + TIE || (margin > best.margin - TIE && tilt < best.tilt)) best = { up, ...r, margin, tilt }
   }
   if (!best || best.margin < 0) return { fits: false, margin: best?.margin ?? -MAX_MARGIN, up: null, tilt: 0, path: [], tightestIndex: 0 }
   return {
     fits: true,
     margin: best.margin,
     up: best.up,
-    tilt: Math.round(best.path.reduce((a, p) => Math.max(a, (p.pitch * 180) / Math.PI), 0)),
+    tilt: best.tilt,
     path: best.path,
     tightestIndex: best.clear.indexOf(best.margin),
   }

@@ -60,7 +60,7 @@ export const UK: Record<string, string> = {
   'lying flat': 'лежачи',
   'on its side': 'на боці',
   'stood on end': 'стоячи',
-  ', tilted up to {0}°': ', з нахилом до {0}°',
+  ', tilted {0}°': ', з нахилом {0}°',
   'Fits with {0}+ to spare': 'Проходить, запас {0}+',
   'Fits with {0} to spare': 'Проходить, запас {0}',
   'Fix the highlighted fields.': 'Виправте виділені поля.',
