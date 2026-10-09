@@ -61,6 +61,10 @@ describe('storage', () => {
   it('falls back to defaults without storage', () => {
     expect(loadState().item).toEqual(DEFAULT_STATE.item)
   })
+  it('defaults to English even when the browser is Ukrainian', () => {
+    vi.stubGlobal('navigator', { language: 'uk-UA' })
+    expect(loadState().settings.lang).toBe('en')
+  })
   it('loadState ignores corrupt storage', () => {
     vi.stubGlobal('localStorage', fakeStorage('{not json'))
     expect(loadState().steps).toEqual(DEFAULT_STATE.steps)

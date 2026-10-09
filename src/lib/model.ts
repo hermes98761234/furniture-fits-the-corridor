@@ -81,8 +81,8 @@ export function loadState(): AppState {
   } catch {
     // Storage blocked, missing or corrupt: fall back to the defaults below.
   }
-  const lang: Lang = globalThis.navigator?.language?.startsWith('uk') ? 'uk' : 'en'
-  return { ...structuredClone(DEFAULT_STATE), settings: { ...DEFAULT_STATE.settings, lang } }
+  // English by default; a language the user picks is remembered above.
+  return structuredClone(DEFAULT_STATE)
 }
 
 export function saveState(s: AppState) {
