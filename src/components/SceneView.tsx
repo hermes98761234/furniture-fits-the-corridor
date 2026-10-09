@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { buildScene } from '../lib/scenes'
 import { localHalf, poseToObb, type Pose } from '../lib/solver'
-import { hull2d, obbCorners, type Vec3 } from '../lib/geometry'
+import { hull2d, obbBounds, obbCorners, type Vec3 } from '../lib/geometry'
 import type { Item, Step } from '../lib/model'
 import type { StepStatus } from '../useSolver'
 import type { T } from '../i18n'
@@ -20,7 +20,7 @@ function fit(u0: number, u1: number, v0: number, v1: number, left: number, top: 
   return { s, ox: left + (w - (u1 - u0) * s) / 2 - u0 * s, oy: top + h - (h - (v1 - v0) * s) / 2 + v0 * s }
 }
 
-function draw(cv: HTMLCanvasElement, step: Step, half: Vec3, pose: Pose | null, tight: Pose | null, t: T) {
+function draw(cv: HTMLCanvasElement, step: Step, half: Vec3, path: Pose[], pose: Pose | null, tight: Pose | null, t: T) {
   const dpr = window.devicePixelRatio || 1
   const W = cv.clientWidth, H = cv.clientHeight
   if (!W || !H) return
@@ -35,7 +35,14 @@ function draw(cv: HTMLCanvasElement, step: Step, half: Vec3, pose: Pose | null, 
   g.fillRect(0, 0, W, H)
 
   const scene = buildScene(step, Math.hypot(...half) + 2)
-  const { bounds } = scene
+  // View = search area grown to hold the whole item at every pose of the path (the search area only bounds its centre).
+  const ext = { x: [...scene.bounds.x], y: [...scene.bounds.y] }
+  for (const p of path) {
+    const b = obbBounds(poseToObb(half, p))
+    ext.x = [Math.min(ext.x[0], b.min[0]), Math.max(ext.x[1], b.max[0])]
+    ext.y = [Math.min(ext.y[0], b.min[1]), Math.max(ext.y[1], b.max[1])]
+  }
+  const bounds = ext
   const top = step.kind === 'turn' ? step.ceiling : Math.max(step.height, 250)
   const sideAxis = step.kind === 'doorway' ? 1 : 0 // doorway: look along the wall; turn: along the entry
   const planH = Math.round(H * 0.6)
@@ -124,7 +131,7 @@ export default function SceneView({ step, item, clearance, status, t }: Props) {
 
   // Redraw on every render: it is cheap, and it picks up theme and language changes.
   useEffect(() => {
-    if (ref.current) draw(ref.current, step, half, pose, tight, t)
+    if (ref.current) draw(ref.current, step, half, path, pose, tight, t)
   })
 
   const message = !status || status.state === 'pending' ? t('Checking…') : result && !result.fits ? t("No path: it doesn't fit here.") : null
